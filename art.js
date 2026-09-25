@@ -1,11 +1,15 @@
-/* VOID.LIFE v4 — deterministic generative knot art.
- * Six MATH CORES (seed picks one): warped FLOW fields · STRANGE ATTRACTORS
+/* VOID.LIFE v5 — deterministic generative knot art.
+ * Seven MATH CORES (seed picks one): warped FLOW fields · STRANGE ATTRACTORS
  * (Clifford / de Jong / Hopalong) · HARMONOGRAPHS · CHLADNI nodal figures ·
  * MAGNETIC dipole fields (iron-filing LIC + traced streamlines — the lodestone
  * core) · REACTION-DIFFUSION (Gray-Scott chemistry: mitosis / coral / maze /
- * worms — genuinely alive, it keeps growing).
- * No letters, no numbers — only math symbology (∫∑φπ∞√∂). Same knot → same art.
- * Usage: KnotArt.render(canvas, seedString, opts) · KnotArt.renderAnimated(...) → {stop}
+ * drifters — genuinely alive, it keeps growing) · RENDEZVOUS (two phones, one
+ * knot: opposed dipole constellations approach, X-point found by Newton solve,
+ * reconnection-style flash, Kuramoto-inspired pulse locking, L-system filigree
+ * grown from the merge).
+ * Math symbology only (∫∑φπ∞√∂); the source-DNA ring is code texture, kept honest.
+ * Same knot → same art. Usage: KnotArt.render(canvas, seedString, opts) ·
+ * KnotArt.renderAnimated(...) → {stop}
  */
 (function (global) {
   'use strict';
@@ -72,8 +76,8 @@
     const pal = PALETTES[(rand() * PALETTES.length) | 0];
     const pick = arr => arr[(rand() * arr.length) | 0];
     const coreRoll = rand();
-    const core = coreRoll < 0.24 ? 'flow' : coreRoll < 0.42 ? 'attractor' : coreRoll < 0.58 ? 'harmonograph'
-      : coreRoll < 0.72 ? 'chladni' : coreRoll < 0.88 ? 'magnetic' : 'reaction';
+    const core = coreRoll < 0.20 ? 'flow' : coreRoll < 0.35 ? 'attractor' : coreRoll < 0.48 ? 'harmonograph'
+      : coreRoll < 0.60 ? 'chladni' : coreRoll < 0.73 ? 'magnetic' : coreRoll < 0.84 ? 'reaction' : 'rendezvous';
     const P = {
       rand, pal, pick, core,
       // flow core
@@ -112,12 +116,40 @@
       reactRegime: pick([['mitosis', 0.035, 0.065], ['coral', 0.018, 0.051], ['maze', 0.029, 0.057],
                           ['drifters', 0.014, 0.054]]),
       reactN: 120, reactIters: 1800,
+      // rendezvous core — two phones, one knot. each phone's constellation is a
+      // CHILD of the parent seed (hash(seed+"::A") / ("::B")): recursive lineage,
+      // not a quine — it descends from the seed, it doesn't reproduce the program.
+      rvDmin: 0.14, rvDmax: 0.66,
+      rvA: null, rvB: null, // filled below
+      rvRules: pick([
+        { ax: 'X', r: { X: 'F+[[X]-X]-F[-FX]+X', F: 'FF' }, ang: 25 * Math.PI / 180, it: 3 },   // fractal plant (delicate)
+        { ax: 'F', r: { F: 'F[+F]F[-F]F' }, ang: 22 * Math.PI / 180, it: 4 },                    // tendril
+        { ax: 'X', r: { X: 'F-[[X]+X]+F[+FX]-X', F: 'FF' }, ang: 23 * Math.PI / 180, it: 3 },    // sister plant (delicate)
+      ]),
       // shared
       ribbons: core === 'flow' ? 2 + ((rand() * 3) | 0) : 0,
       bigSym: pick(SYMBOLS), symInk: pick(pal.inks),
       grainAmt: 14 + rand() * 14,
     };
     if (P.chN === P.chM) P.chM = (P.chM % 7) + 1;
+    // seed lineage: each phone's poles grow from the parent seed's own hash
+    function mkPhone(side, stream) {
+      const n = 2 + ((stream() * 2) | 0), ps = [];
+      const baseAng = side < 0 ? 0 : Math.PI; // north poles face each other
+      for (let i = 0; i < n; i++) {
+        let ox = 0, oy = 0, ok = false;
+        for (let t = 0; t < 20 && !ok; t++) {
+          const a = stream() * TAU, rr = 0.05 + stream() * 0.09;
+          ox = Math.cos(a) * rr; oy = Math.sin(a) * rr * 0.8;
+          ok = ps.every(p => Math.hypot(p.ox - ox, p.oy - oy) > 0.09);
+        }
+        const ang = baseAng + (stream() - 0.5) * 1.0, str = 0.8 + stream() * 0.6;
+        ps.push({ ox, oy, mx: Math.cos(ang) * str, my: Math.sin(ang) * str, str, side });
+      }
+      return ps;
+    }
+    P.rvA = mkPhone(-1, mulberry32(xmur3(String(seedStr) + '::A')()));
+    P.rvB = mkPhone(1, mulberry32(xmur3(String(seedStr) + '::B')()));
     return P;
   }
 
@@ -551,6 +583,280 @@
     };
   }
 
+  // CORE 7 · rendezvous — two phones, one knot. Phone A (copper) and phone B
+  // (teal) hold dipole constellations with north poles facing each other across
+  // a gap d. Opposed fields → an X-point null nearby (Newton-solved, not assumed
+  // at the midpoint — the constellations are independent), separatrix arms,
+  // reconnection-style flash as d → dmin. This is reconnection-INSPIRED art,
+  // not a plasma simulation: no topology change is modeled. Kuramoto-INSPIRED
+  // layer: pole-hearts pulse with phase difference Δφ ∝ d — incoherent when far,
+  // phase-locked at the tap (order parameter r(d) → 1, drawn as the sync ring);
+  // it maps distance to coherence, it doesn't integrate the Kuramoto equations.
+  // L-system layer: a parallel string-rewriting grammar (code making code)
+  // grows golden filigree OUT of the X-point — the knot grows from the merge.
+  // mode: 'both' | 'A' | 'B' (single-phone panels for the approach demo).
+  function rvField(x, y, P, d, mode) {
+    let bx = 0, by = 0;
+    const list = mode === 'A' ? [[-1, P.rvA]] : mode === 'B' ? [[1, P.rvB]] : [[-1, P.rvA], [1, P.rvB]];
+    for (let k = 0; k < list.length; k++) {
+      const cx = list[k][0] * d / 2, ps = list[k][1];
+      for (let i = 0; i < ps.length; i++) {
+        const p = ps[i];
+        const dx = x - (cx + p.ox), dy = y - p.oy;
+        const r2 = dx * dx + dy * dy + 0.0009, r = Math.sqrt(r2);
+        const mdotr = (p.mx * dx + p.my * dy) / r, s = p.str / (r2 * r);
+        bx += s * (3 * mdotr * dx / r - p.mx);
+        by += s * (3 * mdotr * dy / r - p.my);
+      }
+    }
+    return [bx, by];
+  }
+  function rvOrder(d) { return 1 / (1 + Math.exp((d - 0.30) * 14)); } // Kuramoto r(d)
+
+  // the true X-point: Newton-solve B(x,y)=0 from the midpoint. opposed
+  // constellations guarantee a null nearby by continuity; the flash, separatrix,
+  // sync ring and L-system all anchor to THIS point, not to (0,0).
+  function rvNull(P, d) {
+    let x = 0, y = 0;
+    for (let it = 0; it < 14; it++) {
+      const f = rvField(x, y, P, d, 'both'), m = Math.hypot(f[0], f[1]);
+      if (m < 1e-7) break;
+      const e = 1e-4;
+      const fx = rvField(x + e, y, P, d, 'both'), fy = rvField(x, y + e, P, d, 'both');
+      const j00 = (fx[0] - f[0]) / e, j01 = (fy[0] - f[0]) / e;
+      const j10 = (fx[1] - f[1]) / e, j11 = (fy[1] - f[1]) / e;
+      const det = j00 * j11 - j01 * j10;
+      if (Math.abs(det) < 1e-9) break;
+      x -= (j11 * f[0] - j01 * f[1]) / det;
+      y -= (-j10 * f[0] + j00 * f[1]) / det;
+      if (Math.abs(x) > 0.5 || Math.abs(y) > 0.5) { x = 0; y = 0; break; }
+    }
+    return [x, y];
+  }
+
+  // L-system: parallel string rewriting. the string rewrites ITSELF, then the
+  // turtle draws the final string. code making code, literally.
+  function lsysGrow(rs, iters) {
+    let s = rs.ax;
+    for (let n = 0; n < iters; n++) {
+      let o = '';
+      for (let i = 0; i < s.length; i++) { const c = s[i]; o += rs.r[c] || c; }
+      s = o;
+      if (s.length > 60000) break;
+    }
+    return s;
+  }
+  function drawLSystem(ctx, str, ang, X, Y, fitR, ink, ox, oy) {
+    ox = ox || 0; oy = oy || 0;
+    // two-pass turtle: pass 1 measures, pass 2 draws scaled to fit
+    const step = 1;
+    function trace() {
+      let x = 0, y = 0, a = -Math.PI / 2;
+      const st = [], pts = [[0, 0]];
+      let minx = 0, maxx = 0, miny = 0, maxy = 0;
+      for (let i = 0; i < str.length; i++) {
+        const c = str[i];
+        if (c === 'F') {
+          x += Math.cos(a) * step; y += Math.sin(a) * step;
+          pts.push([x, y]);
+          if (x < minx) minx = x; if (x > maxx) maxx = x;
+          if (y < miny) miny = y; if (y > maxy) maxy = y;
+        }
+        else if (c === '+') a += ang;
+        else if (c === '-') a -= ang;
+        else if (c === '[') st.push([x, y, a]);
+        else if (c === ']') { const s2 = st.pop(); x = s2[0]; y = s2[1]; a = s2[2]; pts.push(null); pts.push([x, y]); }
+      }
+      return { pts, sc: fitR / Math.max(1e-6, Math.max(maxx - minx, maxy - miny)), cx: (minx + maxx) / 2, cy: (miny + maxy) / 2 };
+    }
+    const t = trace();
+    ctx.save();
+    ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.globalCompositeOperation = 'lighter';
+    ctx.beginPath();
+    let pen = false;
+    for (const p of t.pts) {
+      if (!p) { pen = false; continue; }
+      const px = X(ox + (p[0] - t.cx) * t.sc), py = Y(oy + (p[1] - t.cy) * t.sc);
+      if (!pen) { ctx.moveTo(px, py); pen = true; } else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function coreRendezvous(ctx, W, H, P, d, mode) {
+    d = (d === undefined) ? P.rvDmin : d; mode = mode || 'both';
+    const S = Math.min(W, H), FE = 0.55, k = S / (2 * FE); // field window ±0.55
+    const X = x => W / 2 + x * k, Y = y => H / 2 + y * k;
+    const rand = P.rand;
+    const COPPER = [255, 140, 26], TEAL = [53, 224, 255];
+    const both = mode === 'both';
+    const nl = both ? rvNull(P, d) : [0, 0]; // the true X-point
+    // -- LIC grain on the combined field (iron-filing shimmer)
+    const gw = 130, gh2 = 130, A = makeAccum(gw, gh2);
+    const dots = 1400;
+    for (let i = 0; i < dots; i++) {
+      let x = rand() * 2 * FE - FE, y = rand() * 2 * FE - FE;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let s2 = 0; s2 < 12; s2++) {
+          const f = rvField(x, y, P, d, mode), m = Math.hypot(f[0], f[1]) + 1e-9;
+          const st = 0.006 / (1 + m * 0.15);
+          x += f[0] / m * st * (pass ? 1 : -1); y += f[1] / m * st * (pass ? 1 : -1);
+          if (Math.abs(x) > FE || Math.abs(y) > FE) break;
+          A.plot((x + FE) / (2 * FE) * gw, (y + FE) / (2 * FE) * gh2, 1, 1, 1, 0.035);
+        }
+      }
+    }
+    blit(ctx, A.toCanvas(2.0), W, H);
+    // -- streamlines, colored by parent phone; whitened near the null.
+    // seeds cluster near the poles so dipole loops read, with a uniform
+    // background population for context.
+    const w2 = W >> 1, h2 = H >> 1, A2 = makeAccum(w2, h2);
+    const NSL = 240;
+    for (let i = 0; i < NSL; i++) {
+      let x, y;
+      if (rand() < 0.6) {
+        const side = mode === 'A' ? -1 : mode === 'B' ? 1 : (rand() < 0.5 ? -1 : 1);
+        const a = rand() * TAU, rr = 0.04 + Math.sqrt(rand()) * 0.22;
+        x = side * d / 2 + Math.cos(a) * rr; y = Math.sin(a) * rr;
+      } else {
+        const a = rand() * TAU, rr = 0.06 + Math.sqrt(rand()) * 0.46;
+        x = Math.cos(a) * rr; y = Math.sin(a) * rr * 0.9;
+      }
+      const nearA = Math.hypot(x + d / 2, y) < Math.hypot(x - d / 2, y);
+      const col = mode === 'A' || (both && nearA) ? COPPER : TEAL;
+      const rC = col[0], gC = col[1], bC = col[2];
+      let px = x, py = y;
+      for (let s2 = 0; s2 < 85; s2++) {
+        const f = rvField(px, py, P, d, mode), m = Math.hypot(f[0], f[1]);
+        if (m < 1e-7) break;
+        const st = 0.007 / (1 + m * 0.4);
+        // RK2 midpoint
+        const mx = px + f[0] / m * st / 2, my = py + f[1] / m * st / 2;
+        const f2 = rvField(mx, my, P, d, mode), m2 = Math.hypot(f2[0], f2[1]) + 1e-9;
+        px += f2[0] / m2 * st; py += f2[1] / m2 * st;
+        if (Math.abs(px) > FE || Math.abs(py) > FE) break;
+        const whiten = 1 - Math.min(1, m * 14); // null region burns white-hot, tightly
+        const al = (0.10 + 0.25 * Math.min(1, Math.log10(1 + m) / 2)) * (0.25 + 0.75 * Math.min(1, m * 2));
+        A2.plot(X(px) / 2, Y(py) / 2,
+          (rC + (255 - rC) * whiten) / 255, (gC + (255 - gC) * whiten) / 255, (bC + (255 - bC) * whiten) / 255, al);
+      }
+    }
+    blit(ctx, A2.toCanvas(2.0), W, H);
+    // -- X-point: reconnection-style flash + separatrix arms + Kuramoto-inspired sync ring
+    const ox = X(nl[0]), oy = Y(nl[1]);
+    if (both) {
+      const merge = Math.max(0, Math.min(1, (0.34 - d) / 0.34));
+      if (merge > 0.01) {
+        const fr = 0.10 * k * (0.4 + 0.6 * merge);
+        const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, fr);
+        g.addColorStop(0, `rgba(255,255,255,${0.6 * merge})`);
+        g.addColorStop(0.4, `rgba(255,240,220,${0.25 * merge})`);
+        g.addColorStop(1, 'rgba(255,240,220,0)');
+        ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g;
+        ctx.fillRect(ox - fr, oy - fr, fr * 2, fr * 2); ctx.restore();
+        // separatrix arms through the null
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(255,255,255,${0.45 * merge})`; ctx.lineWidth = 1.5;
+        const L = 0.13 * k;
+        ctx.beginPath();
+        ctx.moveTo(ox - L, oy); ctx.lineTo(ox + L, oy);
+        ctx.moveTo(ox, oy - L); ctx.lineTo(ox, oy + L);
+        ctx.stroke(); ctx.restore();
+      }
+      const rO = rvOrder(d), rr2 = 0.06 * k;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(255,255,255,${0.15 + 0.7 * rO})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(ox, oy, rr2, -Math.PI / 2, -Math.PI / 2 + rO * TAU); ctx.stroke();
+      ctx.restore();
+      // L-system filigree grows OUT of the merge point — drawn wide enough that
+      // its branches escape the white-hot zone into the dark, where gold reads.
+      const str = lsysGrow(P.rvRules, P.rvRules.it);
+      drawLSystem(ctx, str, P.rvRules.ang, X, Y, 0.44, 'rgba(255,205,135,0.20)', nl[0], nl[1]);
+    }
+    // -- pole hearts
+    const hearts = both ? [[-1, P.rvA, COPPER], [1, P.rvB, TEAL]]
+      : mode === 'A' ? [[-1, P.rvA, COPPER]] : [[1, P.rvB, TEAL]];
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (const [side, ps, col] of hearts) {
+      for (const p of ps) {
+        const px = X(side * d / 2 + p.ox), py = Y(p.oy), pr = 9;
+        const g = ctx.createRadialGradient(px, py, 0, px, py, pr);
+        g.addColorStop(0, 'rgba(255,255,255,0.95)');
+        g.addColorStop(0.35, `rgba(${col[0]},${col[1]},${col[2]},0.55)`);
+        g.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+        ctx.fillStyle = g; ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
+      }
+    }
+    ctx.restore();
+  }
+
+  // rendezvous live: the approach breathes — d(t) loops far→near, dust rides the
+  // live field, pole-hearts Kuramoto-inspired pulse (Δφ ∝ d), reconnection-style flickers at merge
+  function rendezvousLiveLayer(ctx, W, H, P) {
+    const S = Math.min(W, H), FE = 0.55, k = S / (2 * FE);
+    const X = x => W / 2 + x * k, Y = y => H / 2 + y * k;
+    const rand = P.rand;
+    const COPPER = 'rgb(255,140,26)', TEAL = 'rgb(53,224,255)';
+    const pc = document.createElement('canvas'); pc.width = W; pc.height = H;
+    const pctx = pc.getContext('2d');
+    const NP = 380, parts = [];
+    const spawn = q => {
+      const a = rand() * TAU, rr = Math.sqrt(rand()) * 0.52;
+      q.x = Math.cos(a) * rr; q.y = Math.sin(a) * rr; q.age = 0;
+      q.col = rand() < 0.5 ? COPPER : TEAL;
+      return q;
+    };
+    for (let i = 0; i < NP; i++) { const q = spawn({}); q.age = (rand() * 500) | 0; parts.push(q); }
+    const dOf = t => P.rvDmin + (P.rvDmax - P.rvDmin) * (0.5 - 0.5 * Math.cos(TAU * t / 9));
+    function heart(p, side, d, col, b) {
+      const px = X(side * d / 2 + p.ox), py = Y(p.oy), pr = 8;
+      const g = pctx.createRadialGradient(px, py, 0, px, py, pr);
+      g.addColorStop(0, `rgba(255,255,255,${0.9 * b})`);
+      g.addColorStop(1, col.replace('rgb', 'rgba').replace(')', `,${0.55 * b})`));
+      pctx.fillStyle = g; pctx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
+    }
+    return {
+      draw(t) {
+        const d = dOf(t), nl = rvNull(P, d), nx = X(nl[0]), ny = Y(nl[1]);
+        pctx.save();
+        pctx.globalCompositeOperation = 'destination-out';
+        pctx.fillStyle = 'rgba(0,0,0,0.07)'; pctx.fillRect(0, 0, W, H);
+        pctx.restore();
+        pctx.save(); pctx.globalCompositeOperation = 'lighter';
+        for (const q of parts) {
+          const f = rvField(q.x, q.y, P, d, 'both'), m = Math.hypot(f[0], f[1]) + 1e-9;
+          const sp = 0.003 + Math.min(0.008, Math.log10(1 + m) * 0.0022);
+          q.x += f[0] / m * sp; q.y += f[1] / m * sp; q.age++;
+          if (Math.abs(q.x) > FE || Math.abs(q.y) > FE || q.age > 500) spawn(q);
+          else { pctx.globalAlpha = 0.5; pctx.fillStyle = q.col; pctx.fillRect(X(q.x), Y(q.y), 1.6, 1.6); }
+        }
+        pctx.globalAlpha = 1;
+        // Kuramoto-inspired: Δφ shrinks as the phones close → pulses lock at the tap
+        const dphi = Math.PI * (d - P.rvDmin) / (P.rvDmax - P.rvDmin);
+        const thA = 2.4 * t, bA = 0.55 + 0.45 * Math.sin(thA), bB = 0.55 + 0.45 * Math.sin(thA + dphi);
+        for (const p of P.rvA) heart(p, -1, d, COPPER, bA);
+        for (const p of P.rvB) heart(p, 1, d, TEAL, bB);
+        // reconnection-style flicker rings at the X-point
+        const merge = Math.max(0, Math.min(1, (0.34 - d) / 0.34));
+        if (merge > 0.01) {
+          for (let i = 0; i < 3; i++) {
+            const fr = (((t * 0.45 + i / 3) % 1) + 1) % 1, rr = fr * 0.13 * k;
+            pctx.strokeStyle = `rgba(255,255,255,${(1 - fr) * 0.5 * merge})`;
+            pctx.lineWidth = 1.5;
+            pctx.beginPath(); pctx.arc(nx, ny, rr, 0, TAU); pctx.stroke();
+          }
+        }
+        // live sync ring
+        const rO = rvOrder(d);
+        pctx.strokeStyle = `rgba(255,255,255,${0.15 + 0.7 * rO})`; pctx.lineWidth = 2;
+        pctx.beginPath(); pctx.arc(nx, ny, 0.06 * k, -Math.PI / 2, -Math.PI / 2 + rO * TAU); pctx.stroke();
+        pctx.restore();
+        ctx.drawImage(pc, 0, 0);
+      },
+      stop() {}
+    };
+  }
+
   function blit(ctx, small, W, H) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -690,6 +996,7 @@
     else if (P.core === 'harmonograph') coreHarmonograph(ctx, W, H, P);
     else if (P.core === 'magnetic') coreMagnetic(ctx, W, H, P);
     else if (P.core === 'reaction') { if (!coreReaction(ctx, W, H, P)) coreUsed = 'flow'; }
+    else if (P.core === 'rendezvous') coreRendezvous(ctx, W, H, P);
     else coreChladni(ctx, W, H, P);
     drawRibbons(ctx, W, H, P);
     drawSymbols(ctx, W, H, P);
@@ -717,6 +1024,7 @@
       // pattern stays live — base keeps void/nebula only, chemistry paints per frame
       if (!reactionSimOrNull(P)) { coreUsed = 'flow'; coreFlow(bctx, W, H, P); }
     }
+    else if (P.core === 'rendezvous') coreRendezvous(bctx, W, H, P); // base baked at the tap
     else coreChladni(bctx, W, H, P);
     drawRibbons(bctx, W, H, P);
     drawDNA(bctx, W, H, P);
@@ -726,6 +1034,7 @@
     // living layers slot between the baked base and the rotating symbols
     if (coreUsed === 'magnetic') live = magneticLiveLayer(ctx, W, H, P);
     else if (coreUsed === 'reaction') live = reactionLiveLayer(ctx, W, H, P);
+    else if (coreUsed === 'rendezvous') live = rendezvousLiveLayer(ctx, W, H, P);
     let raf = 0; const t0 = performance.now();
     const speed = 0.02 + P.rand() * 0.03, phase = P.p1;
     function frame(now) {
@@ -751,6 +1060,6 @@
 
   global.KnotArt = {
     render, renderAnimated, PALETTES,
-    _diag: { buildParams, drawVoid, drawNebula, drawSymbols, coreFlow, coreAttractor, coreHarmonograph, coreChladni, coreMagnetic, coreReaction, grayScott, makeLUT }
+    _diag: { buildParams, drawVoid, drawNebula, drawSymbols, coreFlow, coreAttractor, coreHarmonograph, coreChladni, coreMagnetic, coreReaction, coreRendezvous, rendezvousLiveLayer, rvField, rvNull, rvOrder, lsysGrow, grayScott, makeLUT }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

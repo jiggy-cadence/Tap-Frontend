@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>TAP — ceremony</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="art.js"></script>
+<script src="ceremony-dsp.js"></script>
+<style>
+:root{--bg:#050508;--neon:#00f0ff;--pink:#ff00e5;--lime:#a6ff00;--dim:#8a8a9a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:"Courier New",monospace;background:var(--bg);color:#e8e8e8;margin:0;padding:20px;min-height:100vh}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.14) 0 1px,transparent 1px 4px)}
+h1{font-size:22px;letter-spacing:6px;margin:0 0 4px;color:#fff;text-shadow:2px 0 0 var(--pink),-2px 0 0 var(--neon)}
+.dim{color:var(--dim);font-size:12px;line-height:1.7}
+#status{white-space:pre-wrap;font-size:14px;line-height:1.7;min-height:90px;border:1px solid #333;
+  padding:12px;border-radius:8px;margin:14px 0}
+#code{font-size:52px;letter-spacing:10px;text-align:center;margin:22px 0;color:#fff;display:none;
+  text-shadow:3px 0 0 var(--pink),-3px 0 0 var(--neon)}
+button{font-family:inherit;cursor:pointer;border-radius:10px}
+button.big{display:block;width:100%;margin:10px 0;padding:20px;font-size:18px;letter-spacing:4px;
+  background:transparent;color:var(--lime);border:2px solid var(--lime);
+  box-shadow:0 0 24px rgba(166,255,0,.25)}
+button.big:active{transform:scale(.97)}
+button.ghost{display:block;width:100%;margin:10px 0;padding:14px;font-size:14px;letter-spacing:2px;
+  background:transparent;color:#ccc;border:1px solid #444}
+button.match{color:#041;background:var(--lime);border:2px solid var(--lime);font-weight:bold}
+button.mismatch{color:var(--pink);border:1px solid var(--pink);background:transparent}
+button:disabled{opacity:.3}
+#verdictRow{display:none}
+#knotArt{display:none;width:100%;border-radius:12px;border:1px solid #333;margin:14px 0}
+#knotMeta{font-size:11px;color:var(--dim);white-space:pre-wrap;word-break:break-all}
+#meters{font-size:12px;margin:8px 0;display:none}
+.bar{display:inline-block;width:22px;background:var(--neon);margin-right:4px;vertical-align:bottom;min-height:2px}
+.hide{display:none!important}
+</style></head><body>
+<h1>◉ CEREMONY</h1>
+<div class="dim" id="roleLine">Volume to MAX. Speakers facing each other, a few cm apart.</div>
+<div id="status">Initializing…</div>
+<div id="meters"></div>
+<div id="code"></div>
+<div id="verdictRow">
+  <button class="big match" id="bMatch">✓ CODES MATCH</button>
+  <button class="ghost mismatch" id="bMismatch">✕ CODES DIFFER</button>
+</div>
+<canvas id="knotArt" width="720" height="720"></canvas>
+<div id="knotMeta"></div>
+<button class="big" id="bGo">▶ START CEREMONY</button>
+<button class="ghost" id="bMic">🎙 MIC CHECK</button>
+<button class="ghost hide" id="bBack">← BACK TO KNOTS</button>
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const qs = new URLSearchParams(location.search);
+const API = qs.get('api') || '';
+const TOKEN = qs.get('token') || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
+const ROLE = qs.get('role') || 'join'; // initiate | join
+const initData = (tg && tg.initData) || '';
+const $ = id => document.getElementById(id);
+const st = t => $('status').textContent = t;
+
+document.getElementById('roleLine').textContent =
+  (ROLE === 'initiate' ? 'YOU INITIATE — the other phone joins first, then you press START.' :
+   'YOU JOIN — press START now and wait for the initiator.') +
+  ' Volume MAX, speakers facing, centimeters apart.';
+
+async function api(path, body) {
+  const r = await fetch(API + path, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ initData, ...body }) });
+  return r.json();
+}
+
+let result = null;
+$('bGo').onclick = async () => {
+  if (!initData) { st('Open this page inside the Telegram mini-app — it needs your Telegram identity.'); return; }
+  if (!TOKEN) { st('No meeting token. Go back and TIE A KNOT (or open the invite link) first.'); return; }
+  $('bGo').disabled = true; $('code').style.display = 'none'; $('verdictRow').style.display = 'none';
+  try {
+    result = ROLE === 'initiate'
+      ? await TapDSP.runInitiator(st)
+      : await TapDSP.runJoiner(st);
+    const c = result.verify;
+    $('code').style.display = 'block';
+    $('code').textContent = c.slice(0, 4) + ' ' + c.slice(4);
+    st('Ceremony complete.\n\nCOMPARE the code on both phones.\nIf they match — tap CODES MATCH on both phones.\nThe knot mints only when BOTH sides confirm.');
+    $('verdictRow').style.display = 'block';
+  } catch (e) { st('❌ ' + e.message); $('bGo').disabled = false; }
+};
+
+async function report(verdict) {
+  $('bMatch').disabled = true; $('bMismatch').disabled = true;
+  st('Reporting to the knot ledger…');
+  try {
+    const r = await api('/api/ceremony/report', {
+      token: TOKEN, code: result.verify, band: result.band, verdict,
+      r: null,
+    });
+    if (!r.ok) { st('Report failed: ' + (r.reason || '?')); return; }
+    if (r.knotted) return showKnot(r.knotId, r.knot, r.signature);
+    if (r.waiting) { st('Your report is in. Waiting on the other phone…'); poll(); return; }
+    st('❌ No knot: ' + (r.reason || 'disagreement'));
+  } catch (e) { st('Backend unreachable: ' + e.message); }
+}
+
+async function poll() {
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const s = await api('/api/meeting/status', { token: TOKEN });
+      if (s.knot) return showKnot(s.knot.id, s.knot.knot, s.knot.signature);
+      if (s.status === 'completed' && !s.knot) { st('❌ Codes or verdicts disagreed — no knot.'); return; }
+    } catch (e) {}
+  }
+  st('Timed out waiting for the other phone. Your report is recorded.');
+}
+
+function showKnot(id, knot, sig) {
+  $('verdictRow').style.display = 'none'; $('bGo').style.display = 'none'; $('bMic').style.display = 'none';
+  const c = $('knotArt'); c.style.display = 'block';
+  KnotArt.renderAnimated(c, id, { w: 720, h: 720, code: knot.code });
+  $('knotMeta').textContent = '🪢 KNOT TIED\nid ' + id.slice(0, 16) + '…\ncode ' + knot.code +
+    '\nsig ' + String(sig).slice(0, 32) + '…\n\nThis artwork is yours — seeded by the knot itself.\nNo two knots share the same art.';
+  st('◉ THE KNOT IS TIED.');
+  $('bBack').classList.remove('hide');
+  if (tg) tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
+}
+
+$('bMatch').onclick = () => report('match');
+$('bMismatch').onclick = () => report('mismatch');
+$('bBack').onclick = () => location.href = './index.html' + (API ? '?api=' + encodeURIComponent(API) : '');
+$('bMic').onclick = async () => {
+  $('meters').style.display = 'block'; st('Mic check — 4 s…');
+  await TapDSP.micCheck(mags => {
+    const mx = Math.max(...mags, 1e-9);
+    $('meters').innerHTML = mags.map((m, i) =>
+      '<span class="bar" style="height:' + Math.round(60 * m / mx) + 'px" title="' + (TapDSP.FREQS[i] / 1000) + 'k"></span>').join('') +
+      '<div class="dim">18.0 → 19.75 kHz — tall bars = the phone hears the band</div>';
+  });
+  st('Mic check done.');
+};
+
+if (!TOKEN) st('No meeting token in this link.\n\nThe INITIATOR: open TAP → TIE A KNOT → share the invite link.\nThe JOINER: tap the invite link — it opens this ceremony with the token.');
+else if (!initData) st('Token found. Open this page inside the Telegram mini-app to run the ceremony.');
+else st('Ready. ' + (ROLE === 'initiate' ? 'You initiate — wait for the joiner, then START.' : 'You join — press START now.'));
+</script>
+</body></html>

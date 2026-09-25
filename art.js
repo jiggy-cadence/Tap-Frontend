@@ -1,12 +1,14 @@
-/* VOID.LIFE v5 — deterministic generative knot art.
- * Seven MATH CORES (seed picks one): warped FLOW fields · STRANGE ATTRACTORS
+/* VOID.LIFE v6 — deterministic generative knot art.
+ * Eight MATH CORES (seed picks one): warped FLOW fields · STRANGE ATTRACTORS
  * (Clifford / de Jong / Hopalong) · HARMONOGRAPHS · CHLADNI nodal figures ·
  * MAGNETIC dipole fields (iron-filing LIC + traced streamlines — the lodestone
  * core) · REACTION-DIFFUSION (Gray-Scott chemistry: mitosis / coral / maze /
  * drifters — genuinely alive, it keeps growing) · RENDEZVOUS (two phones, one
  * knot: opposed dipole constellations approach, X-point found by Newton solve,
  * reconnection-style flash, Kuramoto-inspired pulse locking, L-system filigree
- * grown from the merge).
+ * grown from the merge) · CHIMERA (spiral-wave chimera, heterogeneity-induced:
+ * an incoherent core churns inside phase-locked spiral arms — the brain that
+ * sleeps with half itself).
  * Math symbology only (∫∑φπ∞√∂); the source-DNA ring is code texture, kept honest.
  * Same knot → same art. Usage: KnotArt.render(canvas, seedString, opts) ·
  * KnotArt.renderAnimated(...) → {stop}
@@ -76,8 +78,9 @@
     const pal = PALETTES[(rand() * PALETTES.length) | 0];
     const pick = arr => arr[(rand() * arr.length) | 0];
     const coreRoll = rand();
-    const core = coreRoll < 0.20 ? 'flow' : coreRoll < 0.35 ? 'attractor' : coreRoll < 0.48 ? 'harmonograph'
-      : coreRoll < 0.60 ? 'chladni' : coreRoll < 0.73 ? 'magnetic' : coreRoll < 0.84 ? 'reaction' : 'rendezvous';
+    const core = coreRoll < 0.18 ? 'flow' : coreRoll < 0.31 ? 'attractor' : coreRoll < 0.43 ? 'harmonograph'
+      : coreRoll < 0.54 ? 'chladni' : coreRoll < 0.65 ? 'magnetic' : coreRoll < 0.76 ? 'reaction'
+      : coreRoll < 0.88 ? 'rendezvous' : 'chimera';
     const P = {
       rand, pal, pick, core,
       // flow core
@@ -126,6 +129,13 @@
         { ax: 'F', r: { F: 'F[+F]F[-F]F' }, ang: 22 * Math.PI / 180, it: 4 },                    // tendril
         { ax: 'X', r: { X: 'F-[[X]+X]+F[+FX]-X', F: 'FF' }, ang: 23 * Math.PI / 180, it: 3 },    // sister plant (delicate)
       ]),
+      // chimera core — spiral wave chimera, heterogeneity-induced. the brain
+      // that sleeps with half itself: an incoherent core churns inside
+      // phase-locked spiral arms (Kuramoto–Shima / Martens flavor, seeded).
+      chimPitch: 0.28 + rand() * 0.25, // spiral arm pitch
+      chimCoreR: 9 + rand() * 4,       // incoherent-core radius (lattice units)
+      chimSpread: 1.2 + rand() * 0.8,  // core natural-frequency spread (Hz-ish)
+      chimSteps: 150,                  // settle steps for the static bake
       // shared
       ribbons: core === 'flow' ? 2 + ((rand() * 3) | 0) : 0,
       bigSym: pick(SYMBOLS), symInk: pick(pal.inks),
@@ -857,6 +867,143 @@
     };
   }
 
+  // CORE 8 · CHIMERA — the brain that sleeps with half itself.
+  // Spiral-wave chimera, heterogeneity-induced (Kuramoto–Shima / Martens et al.
+  // flavor): a 2-D lattice of phase oscillators with nonlocal Gaussian coupling
+  // and phase lag α. Oscillators inside the core radius carry a spread of
+  // natural frequencies too wide for the coupling to entrain, so the core
+  // churns incoherent while the spiral arms phase-lock around it.
+  // Chimera-INSPIRED art, not a physics claim: the homogeneous
+  // identical-oscillator route does not settle on this lattice; the
+  // heterogeneous route is the documented, reproducible one.
+  function chimeraSim(P) {
+    const N = 56, R = 5, ALPHA = 0.22, DT = 0.06, SIG = R / 2.2;
+    const rand = P.rand;
+    const ox = [], oy = [], w0 = [];
+    let norm = 0;
+    for (let dx = -R; dx <= R; dx++) for (let dy = -R; dy <= R; dy++) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R * R || (dx === 0 && dy === 0)) continue;
+      const wt = Math.exp(-d2 / (2 * SIG * SIG));
+      ox.push(dx); oy.push(dy); w0.push(wt); norm += wt;
+    }
+    const K = ox.length, w = new Float64Array(K);
+    for (let k = 0; k < K; k++) w[k] = w0[k] / norm;
+    const nbr = new Int32Array(N * N * K);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const i = y * N + x, base = i * K;
+      for (let k = 0; k < K; k++) {
+        const xx = (x + ox[k] + N) % N, yy = (y + oy[k] + N) % N;
+        nbr[base + k] = yy * N + xx;
+      }
+    }
+    const phi = new Float64Array(N * N), om = new Float64Array(N * N);
+    const cx = (N - 1) / 2, cy = (N - 1) / 2;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const i = y * N + x, dx = x - cx, dy = y - cy;
+      const r = Math.hypot(dx, dy), th = Math.atan2(dy, dx);
+      phi[i] = th - r * P.chimPitch + (rand() - 0.5) * 0.3;
+      if (r < P.chimCoreR) {
+        phi[i] = rand() * TAU;
+        om[i] = (rand() + rand() + rand() - 1.5) * 2 * P.chimSpread;
+      }
+    }
+    const next = new Float64Array(N * N);
+    function step() {
+      for (let i = 0; i < N * N; i++) {
+        const base = i * K, ph = phi[i];
+        let s = 0;
+        for (let k = 0; k < K; k++) s += w[k] * Math.sin(ph - phi[nbr[base + k]] + ALPHA);
+        next[i] = ph + DT * (om[i] - s);
+      }
+      phi.set(next);
+    }
+    // local coherence (3×3 neighborhood) — the sleep/wake diagnostic
+    function coherence() {
+      const c = new Float32Array(N * N);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        let sr = 0, si = 0, n = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= N || yy >= N) continue;
+          sr += Math.cos(phi[yy * N + xx]); si += Math.sin(phi[yy * N + xx]); n++;
+        }
+        c[y * N + x] = Math.hypot(sr, si) / n;
+      }
+      return c;
+    }
+    // regional split for the honesty receipt: inside vs outside the core radius
+    function stats() {
+      const c = coherence();
+      let ci = 0, ni = 0, co = 0, no = 0;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const r = Math.hypot(x - cx, y - cy), v = c[y * N + x];
+        if (r < P.chimCoreR) { ci += v; ni++; } else if (r < N * 0.45) { co += v; no++; }
+      }
+      return { core: ci / ni, arms: co / no };
+    }
+    // phase → palette color, brightness ← coherence. returns an ImageData.
+    function paint(lut) {
+      const c = coherence();
+      const img = new ImageData(N, N), d = img.data;
+      for (let i = 0; i < N * N; i++) {
+        const col = lut[((((phi[i] % TAU) + TAU) % TAU) / TAU * 255) | 0];
+        const b = 0.22 + 0.78 * c[i];
+        d[i * 4] = col[0] * 255 * b; d[i * 4 + 1] = col[1] * 255 * b;
+        d[i * 4 + 2] = col[2] * 255 * b; d[i * 4 + 3] = 255;
+      }
+      return img;
+    }
+    return { step, paint, stats, N, coreR: P.chimCoreR };
+  }
+
+  function chimeraLUT(P) {
+    const inks = P.pal.inks.map(hexRGB), LUT = [];
+    for (let i = 0; i < 256; i++) {
+      const t = i / 255 * (inks.length - 1), j = Math.min(inks.length - 2, t | 0), f = t - j;
+      LUT.push([0, 1, 2].map(c => (inks[j][c] + (inks[j + 1][c] - inks[j][c]) * f) / 255));
+    }
+    return LUT;
+  }
+
+  function coreChimera(ctx, W, H, P) {
+    const sim = chimeraSim(P);
+    for (let s = 0; s < P.chimSteps; s++) sim.step();
+    const small = document.createElement('canvas'); small.width = sim.N; small.height = sim.N;
+    small.getContext('2d').putImageData(sim.paint(chimeraLUT(P)), 0, 0);
+    blit(ctx, small, W, H);
+    // faint dashed ring at the sleep boundary — here the brain sleeps
+    const S = Math.min(W, H), k = S / (sim.N + 2);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([7, 9]);
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, sim.coreR * k, 0, TAU); ctx.stroke();
+    ctx.restore(); ctx.setLineDash([]);
+    return true;
+  }
+
+  // chimera live: the core keeps churning, the arms keep dreaming — the sim
+  // keeps stepping under the baked piece, two steps per frame.
+  function chimeraLiveLayer(ctx, W, H, P) {
+    const sim = chimeraSim(P);
+    for (let s = 0; s < P.chimSteps; s++) sim.step();
+    const lut = chimeraLUT(P);
+    const small = document.createElement('canvas'); small.width = sim.N; small.height = sim.N;
+    const sctx = small.getContext('2d');
+    return {
+      draw() {
+        sim.step(); sim.step();
+        sctx.putImageData(sim.paint(lut), 0, 0);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(small, 0, 0, W, H);
+        ctx.restore();
+      },
+      stop() {}
+    };
+  }
+
   function blit(ctx, small, W, H) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -997,6 +1144,7 @@
     else if (P.core === 'magnetic') coreMagnetic(ctx, W, H, P);
     else if (P.core === 'reaction') { if (!coreReaction(ctx, W, H, P)) coreUsed = 'flow'; }
     else if (P.core === 'rendezvous') coreRendezvous(ctx, W, H, P);
+    else if (P.core === 'chimera') coreChimera(ctx, W, H, P);
     else coreChladni(ctx, W, H, P);
     drawRibbons(ctx, W, H, P);
     drawSymbols(ctx, W, H, P);
@@ -1025,6 +1173,7 @@
       if (!reactionSimOrNull(P)) { coreUsed = 'flow'; coreFlow(bctx, W, H, P); }
     }
     else if (P.core === 'rendezvous') coreRendezvous(bctx, W, H, P); // base baked at the tap
+    else if (P.core === 'chimera') coreChimera(bctx, W, H, P); // base baked at the tap
     else coreChladni(bctx, W, H, P);
     drawRibbons(bctx, W, H, P);
     drawDNA(bctx, W, H, P);
@@ -1035,6 +1184,7 @@
     if (coreUsed === 'magnetic') live = magneticLiveLayer(ctx, W, H, P);
     else if (coreUsed === 'reaction') live = reactionLiveLayer(ctx, W, H, P);
     else if (coreUsed === 'rendezvous') live = rendezvousLiveLayer(ctx, W, H, P);
+    else if (coreUsed === 'chimera') live = chimeraLiveLayer(ctx, W, H, P);
     let raf = 0; const t0 = performance.now();
     const speed = 0.02 + P.rand() * 0.03, phase = P.p1;
     function frame(now) {
@@ -1060,6 +1210,6 @@
 
   global.KnotArt = {
     render, renderAnimated, PALETTES,
-    _diag: { buildParams, drawVoid, drawNebula, drawSymbols, coreFlow, coreAttractor, coreHarmonograph, coreChladni, coreMagnetic, coreReaction, coreRendezvous, rendezvousLiveLayer, rvField, rvNull, rvOrder, lsysGrow, grayScott, makeLUT }
+    _diag: { buildParams, drawVoid, drawNebula, drawSymbols, coreFlow, coreAttractor, coreHarmonograph, coreChladni, coreMagnetic, coreReaction, coreRendezvous, coreChimera, chimeraSim, chimeraLiveLayer, rendezvousLiveLayer, rvField, rvNull, rvOrder, lsysGrow, grayScott, makeLUT }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

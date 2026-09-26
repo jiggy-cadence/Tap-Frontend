@@ -1,4 +1,4 @@
-/* VOID.LIFE v6 — deterministic generative knot art.
+/* VOID.LIFE v7 — deterministic generative knot art.
  * Eight MATH CORES (seed picks one): warped FLOW fields · STRANGE ATTRACTORS
  * (Clifford / de Jong / Hopalong) · HARMONOGRAPHS · CHLADNI nodal figures ·
  * MAGNETIC dipole fields (iron-filing LIC + traced streamlines — the lodestone
@@ -9,6 +9,11 @@
  * grown from the merge) · CHIMERA (spiral-wave chimera, heterogeneity-induced:
  * an incoherent core churns inside phase-locked spiral arms — the brain that
  * sleeps with half itself).
+ * v7 adds the YURU living layer: parametric hairline creatures in the spirit of
+ * @yuruyurau's one-liner organisms — seeded harmonic sums, ghost-white on
+ * black — swimming along the magnetic field lines on magnetic/flow cores.
+ * (Also v7: living-layer trail fade fixed to destination-in — the old
+ * source-over black fill accumulated to opaque and would bury the baked base.)
  * Math symbology only (∫∑φπ∞√∂); the source-DNA ring is code texture, kept honest.
  * Same knot → same art. Usage: KnotArt.render(canvas, seedString, opts) ·
  * KnotArt.renderAnimated(...) → {stop}
@@ -559,7 +564,11 @@
     for (let i = 0; i < NP; i++) parts.push(spawn({}));
     return {
       draw(t) {
-        pctx.fillStyle = 'rgba(0,0,0,0.06)'; pctx.fillRect(0, 0, W, H); // trail fade
+        // trail fade: destination-in keeps the layer transparent (a source-over
+        // black fill would accumulate to opaque and bury the baked base)
+        pctx.globalCompositeOperation = 'destination-in';
+        pctx.fillStyle = 'rgba(0,0,0,0.94)'; pctx.fillRect(0, 0, W, H);
+        pctx.globalCompositeOperation = 'source-over';
         for (const q of parts) {
           const nx = (q.x / W - 0.5) * 2 * asp, ny = (q.y / H - 0.5) * 2;
           const f = field(nx, ny, t), m = Math.hypot(f[0], f[1]) + 1e-9;
@@ -567,6 +576,70 @@
           q.x += f[0] / m * sp; q.y += f[1] / m * sp;
           if (q.x < 0 || q.x >= W || q.y < 0 || q.y >= H || rand() < 0.004) spawn(q);
           else { pctx.globalAlpha = 0.55; pctx.fillStyle = q.col; pctx.fillRect(q.x, q.y, 1.7, 1.7); }
+        }
+        pctx.globalAlpha = 1;
+        ctx.drawImage(pc, 0, 0);
+      },
+      stop() {}
+    };
+  }
+
+  // yuru: parametric hairline creatures, after @yuruyurau's one-liner organisms
+  // (layered-sine closed forms, ghost-white on black). Each creature is a
+  // seeded harmonic sum — x(s)=Σa·sin(f·s+p) — breathing with phase t, slowly
+  // rotating; on magnetic cores the creatures swim along the dipole field
+  // lines, otherwise they drift. Hairline strokes, additive light.
+  function yuruLiveLayer(ctx, W, H, P) {
+    const rand = P.rand, inks = P.pal.inks;
+    const field = P.magField || null, asp = P.magAsp || W / H;
+    const pc = document.createElement('canvas'); pc.width = W; pc.height = H;
+    const pctx = pc.getContext('2d');
+    const NC = 2 + ((rand() * 2) | 0), NPT = 640, creatures = [];
+    for (let c = 0; c < NC; c++) {
+      const nt = 3 + ((rand() * 3) | 0), fx = [], fy = [];
+      for (let i = 0; i < nt; i++) {
+        fx.push({ a: 24 + rand() * 92, f: 1 + ((rand() * 5) | 0), p: rand() * TAU });
+        fy.push({ a: 24 + rand() * 92, f: 1 + ((rand() * 5) | 0), p: rand() * TAU });
+      }
+      creatures.push({
+        x: rand() * W, y: rand() * H, fx, fy,
+        rot: rand() * TAU, rotSpd: (rand() - 0.5) * 0.22,
+        col: c === 0 ? '#ffffff' : inks[(rand() * inks.length) | 0],
+        alpha: 0.42 + rand() * 0.3,
+        ph: rand() * TAU, phSpd: 0.22 + rand() * 0.5,
+        scale: 0.55 + rand() * 0.95, drift: 8 + rand() * 16,
+      });
+    }
+    return {
+      draw(t) {
+        pctx.globalCompositeOperation = 'destination-in';
+        pctx.fillStyle = 'rgba(0,0,0,0.945)'; pctx.fillRect(0, 0, W, H);
+        pctx.globalCompositeOperation = 'lighter';
+        pctx.lineWidth = 1;
+        for (const cr of creatures) {
+          if (field) {
+            const nx = (cr.x / W - 0.5) * 2 * asp, ny = (cr.y / H - 0.5) * 2;
+            const f = field(nx, ny, t), m = Math.hypot(f[0], f[1]) + 1e-9;
+            cr.x += f[0] / m * cr.drift * 0.016; cr.y += f[1] / m * cr.drift * 0.016;
+            if (cr.x < -60 || cr.x > W + 60 || cr.y < -60 || cr.y > H + 60) { cr.x = rand() * W; cr.y = rand() * H; }
+          } else {
+            cr.x += Math.cos(t * 0.11 + cr.ph) * 0.3;
+            cr.y += Math.sin(t * 0.13 + cr.ph * 1.7) * 0.3;
+          }
+          const rot = cr.rot + t * cr.rotSpd, ph = cr.ph + t * cr.phSpd;
+          const cs = Math.cos(rot), sn = Math.sin(rot);
+          pctx.strokeStyle = cr.col; pctx.globalAlpha = cr.alpha;
+          pctx.beginPath();
+          for (let i = 0; i <= NPT; i++) {
+            const s = i / NPT * TAU;
+            let lx = 0, ly = 0;
+            for (const tm of cr.fx) lx += tm.a * Math.sin(tm.f * s + tm.p + ph);
+            for (const tm of cr.fy) ly += tm.a * Math.sin(tm.f * s + tm.p * 1.3 + ph * 0.8);
+            lx *= cr.scale; ly *= cr.scale;
+            const px = cr.x + lx * cs - ly * sn, py = cr.y + lx * sn + ly * cs;
+            if (i === 0) pctx.moveTo(px, py); else pctx.lineTo(px, py);
+          }
+          pctx.closePath(); pctx.stroke();
         }
         pctx.globalAlpha = 1;
         ctx.drawImage(pc, 0, 0);
@@ -1181,7 +1254,11 @@
     const sym = document.createElement('canvas'); sym.width = W; sym.height = H;
     drawSymbols(sym.getContext('2d'), W, H, P);
     // living layers slot between the baked base and the rotating symbols
-    if (coreUsed === 'magnetic') live = magneticLiveLayer(ctx, W, H, P);
+    if (coreUsed === 'magnetic') {
+      const dust = magneticLiveLayer(ctx, W, H, P), org = yuruLiveLayer(ctx, W, H, P);
+      live = { draw(t) { dust.draw(t); org.draw(t); }, stop() {} };
+    }
+    else if (coreUsed === 'flow') live = yuruLiveLayer(ctx, W, H, P);
     else if (coreUsed === 'reaction') live = reactionLiveLayer(ctx, W, H, P);
     else if (coreUsed === 'rendezvous') live = rendezvousLiveLayer(ctx, W, H, P);
     else if (coreUsed === 'chimera') live = chimeraLiveLayer(ctx, W, H, P);
@@ -1210,6 +1287,6 @@
 
   global.KnotArt = {
     render, renderAnimated, PALETTES,
-    _diag: { buildParams, drawVoid, drawNebula, drawSymbols, coreFlow, coreAttractor, coreHarmonograph, coreChladni, coreMagnetic, coreReaction, coreRendezvous, coreChimera, chimeraSim, chimeraLiveLayer, rendezvousLiveLayer, rvField, rvNull, rvOrder, lsysGrow, grayScott, makeLUT }
+    _diag: { buildParams, drawVoid, drawNebula, drawSymbols, coreFlow, coreAttractor, coreHarmonograph, coreChladni, coreMagnetic, coreReaction, coreRendezvous, coreChimera, chimeraSim, chimeraLiveLayer, rendezvousLiveLayer, yuruLiveLayer, rvField, rvNull, rvOrder, lsysGrow, grayScott, makeLUT }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1,4 +1,4 @@
-/* VOID.LIFE v7 — deterministic generative knot art.
+/* VOID.LIFE v9 — deterministic generative knot art.
  * Eight MATH CORES (seed picks one): warped FLOW fields · STRANGE ATTRACTORS
  * (Clifford / de Jong / Hopalong) · HARMONOGRAPHS · CHLADNI nodal figures ·
  * MAGNETIC dipole fields (iron-filing LIC + traced streamlines — the lodestone
@@ -9,11 +9,14 @@
  * grown from the merge) · CHIMERA (spiral-wave chimera, heterogeneity-induced:
  * an incoherent core churns inside phase-locked spiral arms — the brain that
  * sleeps with half itself).
- * v7 adds the YURU living layer: parametric hairline creatures in the spirit of
- * @yuruyurau's one-liner organisms — seeded harmonic sums, ghost-white on
- * black — swimming along the magnetic field lines on magnetic/flow cores.
- * (Also v7: living-layer trail fade fixed to destination-in — the old
- * source-over black fill accumulated to opaque and would bury the baked base.)
+ * v9: the YURU layer becomes ORGANISMS whose bodies ARE the field's
+ * handwriting — each creature is a head integrated (RK2) through the same
+ * vector field that draws the base layer; its body is the trail it swam, with
+ * a genome-driven wiggle. v8's spring-held parametric bodies read as stickers
+ * on top; v9 kills the independent path. Creatures feed near the poles, lay
+ * mutated eggs, fade when starved: generations, not loops.
+ * (v7: living-layer trail fade fixed to destination-in — the old source-over
+ * black fill accumulated to opaque and would bury the baked base.)
  * Math symbology only (∫∑φπ∞√∂); the source-DNA ring is code texture, kept honest.
  * Same knot → same art. Usage: KnotArt.render(canvas, seedString, opts) ·
  * KnotArt.renderAnimated(...) → {stop}
@@ -185,6 +188,7 @@
                  + Math.sin((x + y) * 1.7 + P.p3) + Math.sin(Math.hypot(x, y) * 2.5 + P.p1) * 0.7;
       return (flow + w) * P.turns;
     };
+    P.flowField = field; // stashed for the living overlay (organisms swim it)
     for (let i = 0; i < P.lifeN; i++) {
       let x = rand() * W, y = rand() * H;
       const col = inks[(rand() * inks.length) | 0], alpha = 0.05 + rand() * 0.08;
@@ -584,65 +588,224 @@
     };
   }
 
-  // yuru: parametric hairline creatures, after @yuruyurau's one-liner organisms
-  // (layered-sine closed forms, ghost-white on black). Each creature is a
-  // seeded harmonic sum — x(s)=Σa·sin(f·s+p) — breathing with phase t, slowly
-  // rotating; on magnetic cores the creatures swim along the dipole field
-  // lines, otherwise they drift. Hairline strokes, additive light.
+  // yuru v8: organisms, not ornaments. Each creature is a genome — a harmonic
+  // coefficient set — embodied as a closed chain of body vertices. Every frame
+  // each vertex is advected by the core's vector field and sprung back toward
+  // its rest shape, so the body is sculpted BY the field math, never merely
+  // translated through it. Morphology follows field strength: stretched sleek
+  // near the poles, round and drifting far away. Creatures feed where the
+  // field runs strong, lay mutated eggs when fed, fade when starved:
+  // generations, not loops — always unique, always building. One shared
+  // heartbeat keeps the layer in rhythm with the back; trails etch the
+  // streamlines they swam. After @yuruyurau's one-liner organisms.
+  // yuru v9: the body IS the field's handwriting. Each creature is a head that
+  // swims the core's vector field (RK2 midpoint integration through the SAME
+  // field function that draws the base layer); its body is the trail of where
+  // the head has been — a streamline with a genome. No independent parametric
+  // path anymore: the v8 spring held bodies rigid and they read as stickers.
+  // The genome now sets trail length, swim speed, wiggle amplitude/frequency —
+  // the yuruyurau hairline character survives as a swimming wiggle that grows
+  // toward the tail, pulsing with the shared heartbeat. Creatures feed where
+  // the field runs strong, lay mutated eggs when fed, fade when starved:
+  // generations, not loops. After @yuruyurau's one-liner organisms.
   function yuruLiveLayer(ctx, W, H, P) {
+    const cvs = ctx.canvas;
     const rand = P.rand, inks = P.pal.inks;
-    const field = P.magField || null, asp = P.magAsp || W / H;
-    const pc = document.createElement('canvas'); pc.width = W; pc.height = H;
-    const pctx = pc.getContext('2d');
-    const NC = 2 + ((rand() * 2) | 0), NPT = 640, creatures = [];
-    for (let c = 0; c < NC; c++) {
-      const nt = 3 + ((rand() * 3) | 0), fx = [], fy = [];
-      for (let i = 0; i < nt; i++) {
-        fx.push({ a: 24 + rand() * 92, f: 1 + ((rand() * 5) | 0), p: rand() * TAU });
-        fy.push({ a: 24 + rand() * 92, f: 1 + ((rand() * 5) | 0), p: rand() * TAU });
+    const magF = P.magField || null, flowF = P.flowField || null;
+    const asp = P.magAsp || W / H;
+    const KIND = magF ? 'mag' : (flowF ? 'flow' : 'drift');
+    let S = cvs._yuru9;
+    if (!S || S.P !== P) S = cvs._yuru9 = initOrganisms();
+
+    const toNx = (x, y) => [(x / W - 0.5) * 2 * asp, (y / H - 0.5) * 2];
+    // unit direction + normalized strength of the core's vector field at (x,y)
+    function vecAt(x, y, t) {
+      const n = toNx(x, y);
+      if (KIND === 'mag') {
+        const f = magF(n[0], n[1], t), m = Math.hypot(f[0], f[1]) + 1e-9;
+        const px = f[0] / m * (W / (2 * asp)), py = f[1] / m * (H / 2);
+        const L = Math.hypot(px, py) + 1e-9;
+        return { dx: px / L, dy: py / L, mag: Math.min(1, Math.log10(1 + m) / 2.2) };
       }
-      creatures.push({
-        x: rand() * W, y: rand() * H, fx, fy,
-        rot: rand() * TAU, rotSpd: (rand() - 0.5) * 0.22,
-        col: c === 0 ? '#ffffff' : inks[(rand() * inks.length) | 0],
-        alpha: 0.42 + rand() * 0.3,
-        ph: rand() * TAU, phSpd: 0.22 + rand() * 0.5,
-        scale: 0.55 + rand() * 0.95, drift: 8 + rand() * 16,
-      });
+      if (KIND === 'flow') {
+        const a = flowF(n[0], n[1]);
+        return { dx: Math.cos(a), dy: Math.sin(a), mag: 0.45 + 0.25 * Math.sin(a * 2) };
+      }
+      // drift fallback (no core field stashed — should not happen in renderAnimated)
+      const da = Math.sin(n[0] * 1.7 + t * 0.2) + Math.cos(n[1] * 1.3 - t * 0.15);
+      return { dx: Math.cos(da), dy: Math.sin(da), mag: 0.3 };
     }
+
+    function newGenome() {
+      return {
+        trail: 70 + ((rand() * 70) | 0),      // body length in trail points
+        speed: 0.7 + rand() * 0.7,            // swim speed multiplier
+        wigAmp: 2 + rand() * 7,               // lateral wiggle amplitude (px)
+        wigFreq: 2 + rand() * 4,              // wiggle temporal frequency
+        ph: rand() * TAU,
+        hue: inks[(rand() * inks.length) | 0],
+        headR: 1.4 + rand() * 1.8,
+      };
+    }
+    // recursive lineage: offspring is the parent genome, mutated
+    function mutate(g) {
+      const j = (s) => (rand() + rand() + rand() - 1.5) * s;
+      return {
+        trail: Math.max(40, Math.min(160, g.trail + ((j(30)) | 0))),
+        speed: Math.max(0.4, Math.min(1.8, g.speed + j(0.25))),
+        wigAmp: Math.max(0.5, Math.min(12, g.wigAmp + j(2.5))),
+        wigFreq: Math.max(1, Math.min(8, g.wigFreq + j(1.2))),
+        ph: rand() * TAU,
+        hue: rand() < 0.35 ? inks[(rand() * inks.length) | 0] : g.hue,
+        headR: Math.max(1, Math.min(4, g.headR + j(0.6))),
+      };
+    }
+    function spawn(g, x, y, gen) {
+      const trail = [];
+      for (let i = 0; i < g.trail; i++) trail.push({ x, y });
+      return { g, trail, x, y, heading: rand() * TAU, energy: 0.55 + rand() * 0.3,
+               age: 0, gen: gen || 0, alpha: 0, deadBurst: false };
+    }
+    function initOrganisms() {
+      const pc = document.createElement('canvas'); pc.width = W; pc.height = H;
+      const st = { P, pc, pctx: pc.getContext('2d'), creatures: [], eggs: [], spores: [], last: 0 };
+      for (let i = 0; i < 3; i++) {
+        const g = newGenome();
+        if (i === 0) g.hue = '#ffffff'; // one ghost-leader
+        st.creatures.push(spawn(g, W * (0.25 + rand() * 0.5), H * (0.25 + rand() * 0.5), 0));
+      }
+      return st;
+    }
+
+    function stepCreature(cr, dt, t) {
+      cr.age += dt;
+      const v0 = vecAt(cr.x, cr.y, t);
+      // behavior: hungry creatures bias their heading toward the strongest
+      // nearby field (magnetic); the sated drift with the current
+      let want = Math.atan2(v0.dy, v0.dx);
+      if (cr.energy < 0.35 && KIND === 'mag') {
+        let best = -1;
+        for (const off of [-0.7, 0, 0.7]) {
+          const a = cr.heading + off;
+          const q = vecAt(cr.x + Math.cos(a) * 70, cr.y + Math.sin(a) * 70, t);
+          if (q.mag > best) { best = q.mag; want = a; }
+        }
+      }
+      let d = want - cr.heading;
+      while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
+      cr.heading += d * Math.min(1, dt * 3);
+      // head: RK2 midpoint integration through the field, blended with heading
+      const stepLen = (14 + v0.mag * 46) * cr.g.speed; // px per second
+      const hx = Math.cos(cr.heading), hy = Math.sin(cr.heading);
+      const k1x = v0.dx * 0.9 + hx * 0.5, k1y = v0.dy * 0.9 + hy * 0.5;
+      const mx = cr.x + k1x * stepLen * dt * 0.5, my = cr.y + k1y * stepLen * dt * 0.5;
+      const k2 = vecAt(mx, my, t);
+      let dx = k2.dx * 0.9 + hx * 0.5, dy = k2.dy * 0.9 + hy * 0.5;
+      const dl = Math.hypot(dx, dy) + 1e-9; dx /= dl; dy /= dl;
+      cr.x += dx * stepLen * dt; cr.y += dy * stepLen * dt;
+      if (cr.x < -80) cr.x = W + 80; else if (cr.x > W + 80) cr.x = -80;
+      if (cr.y < -80) cr.y = H + 80; else if (cr.y > H + 80) cr.y = -80;
+      // the body is the trail: record the head, keep the genome's length
+      // (starving creatures shorten — you can see hunger)
+      const keep = Math.max(24, (cr.g.trail * (0.45 + 0.55 * cr.energy)) | 0);
+      cr.trail.unshift({ x: cr.x, y: cr.y });
+      while (cr.trail.length > keep) cr.trail.pop();
+      // feed where the field runs strong, starve elsewhere, age slowly
+      cr.energy += (v0.mag > 0.5 ? dt * 0.055 : -dt * 0.014) - (cr.age > 90 ? dt * 0.01 : 0);
+      cr.energy = Math.max(0, Math.min(1, cr.energy));
+      if (cr.energy > 0.88 && cr.age > 10 && S.creatures.length + S.eggs.length < 6) {
+        S.eggs.push({ x: cr.x, y: cr.y, g: mutate(cr.g), t: 0, gen: cr.gen + 1 });
+        cr.energy = 0.45;
+      }
+      if (cr.energy <= 0) cr.deathBurst = true;
+      const target = cr.energy <= 0 ? 0 : 0.75;
+      cr.alpha += (target - cr.alpha) * Math.min(1, dt * 2);
+    }
+
     return {
       draw(t) {
+        const dt = Math.min(0.05, Math.max(0.001, t - (S.last || t))); S.last = t;
+        const pctx = S.pctx, hb = 0.5 + 0.5 * Math.sin(t * 0.85); // shared heartbeat
+        // trail fade: destination-in keeps the layer transparent
         pctx.globalCompositeOperation = 'destination-in';
-        pctx.fillStyle = 'rgba(0,0,0,0.945)'; pctx.fillRect(0, 0, W, H);
+        pctx.fillStyle = 'rgba(0,0,0,0.95)'; pctx.fillRect(0, 0, W, H);
         pctx.globalCompositeOperation = 'lighter';
         pctx.lineWidth = 1;
-        for (const cr of creatures) {
-          if (field) {
-            const nx = (cr.x / W - 0.5) * 2 * asp, ny = (cr.y / H - 0.5) * 2;
-            const f = field(nx, ny, t), m = Math.hypot(f[0], f[1]) + 1e-9;
-            cr.x += f[0] / m * cr.drift * 0.016; cr.y += f[1] / m * cr.drift * 0.016;
-            if (cr.x < -60 || cr.x > W + 60 || cr.y < -60 || cr.y > H + 60) { cr.x = rand() * W; cr.y = rand() * H; }
-          } else {
-            cr.x += Math.cos(t * 0.11 + cr.ph) * 0.3;
-            cr.y += Math.sin(t * 0.13 + cr.ph * 1.7) * 0.3;
+        for (const cr of S.creatures) stepCreature(cr, dt, t);
+        for (const e of S.eggs) {
+          e.t += dt;
+          if (e.t > 3.5) { S.creatures.push(spawn(e.g, e.x, e.y, e.gen)); e.hatched = true; }
+        }
+        S.eggs = S.eggs.filter(e => !e.hatched);
+        const kept = [];
+        for (const cr of S.creatures) {
+          if (cr.energy <= 0 && cr.deadBurst) {
+            cr.deathBurst = false;
+            for (let i = 0; i < 10; i++) {
+              const a = rand() * TAU, sp = 20 + rand() * 50;
+              S.spores.push({ x: cr.x, y: cr.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1.6 });
+            }
           }
-          const rot = cr.rot + t * cr.rotSpd, ph = cr.ph + t * cr.phSpd;
-          const cs = Math.cos(rot), sn = Math.sin(rot);
-          pctx.strokeStyle = cr.col; pctx.globalAlpha = cr.alpha;
-          pctx.beginPath();
-          for (let i = 0; i <= NPT; i++) {
-            const s = i / NPT * TAU;
-            let lx = 0, ly = 0;
-            for (const tm of cr.fx) lx += tm.a * Math.sin(tm.f * s + tm.p + ph);
-            for (const tm of cr.fy) ly += tm.a * Math.sin(tm.f * s + tm.p * 1.3 + ph * 0.8);
-            lx *= cr.scale; ly *= cr.scale;
-            const px = cr.x + lx * cs - ly * sn, py = cr.y + lx * sn + ly * cs;
-            if (i === 0) pctx.moveTo(px, py); else pctx.lineTo(px, py);
+          if (cr.energy <= 0 && cr.alpha < 0.02) continue;
+          kept.push(cr);
+        }
+        S.creatures = kept;
+        if (S.creatures.length === 0 && S.eggs.length === 0) {
+          const g = newGenome();
+          S.eggs.push({ x: W * (0.3 + rand() * 0.4), y: H * (0.3 + rand() * 0.4), g, t: 2.5, gen: 0 });
+        }
+        for (const s of S.spores) {
+          s.life -= dt;
+          const q = vecAt(s.x, s.y, t);
+          s.x += (s.vx * 0.4 + q.dx * 22) * dt; s.y += (s.vy * 0.4 + q.dy * 22) * dt;
+          s.vx *= 0.98; s.vy *= 0.98;
+        }
+        S.spores = S.spores.filter(s => s.life > 0);
+        // render bodies: per-segment tapered hairlines along the trail, with a
+        // lateral swimming wiggle that grows toward the tail and breathes with
+        // the heartbeat — the path underneath is pure field streamline
+        const glow = 0.62 + 0.25 * Math.sin(t * 0.85);
+        for (const cr of S.creatures) {
+          if (cr.alpha <= 0.01 || cr.trail.length < 4) continue;
+          const n = cr.trail.length;
+          const amp = cr.g.wigAmp * (0.7 + 0.5 * hb);
+          const px = new Float32Array(n), py = new Float32Array(n);
+          for (let i = 0; i < n; i++) {
+            const p0 = cr.trail[Math.max(0, i - 1)], p1 = cr.trail[Math.min(n - 1, i + 1)];
+            let nx = -(p1.y - p0.y), ny = p1.x - p0.x;
+            const nl = Math.hypot(nx, ny) + 1e-9; nx /= nl; ny /= nl;
+            const w = Math.sin(i * 0.32 - t * cr.g.wigFreq + cr.g.ph) * amp * Math.pow(i / n, 1.2);
+            px[i] = cr.trail[i].x + nx * w; py[i] = cr.trail[i].y + ny * w;
           }
-          pctx.closePath(); pctx.stroke();
+          pctx.strokeStyle = cr.g.hue;
+          for (let i = 1; i < n; i++) {
+            pctx.globalAlpha = cr.alpha * glow * Math.pow(1 - i / n, 1.4);
+            pctx.beginPath(); pctx.moveTo(px[i - 1], py[i - 1]); pctx.lineTo(px[i], py[i]); pctx.stroke();
+          }
+          // the mouth: bright head-dot, reads as alive and gives direction
+          pctx.globalAlpha = Math.min(1, cr.alpha + 0.25);
+          pctx.fillStyle = '#ffffff';
+          pctx.beginPath(); pctx.arc(px[0], py[0], cr.g.headR * 0.6, 0, TAU); pctx.fill();
+          pctx.globalAlpha = cr.alpha * 0.5;
+          pctx.fillStyle = cr.g.hue;
+          pctx.beginPath(); pctx.arc(px[0], py[0], cr.g.headR * 1.6, 0, TAU); pctx.fill();
+        }
+        for (const e of S.eggs) {
+          const p = Math.min(1, e.t / 3.5);
+          pctx.globalAlpha = 0.45 + 0.3 * Math.sin(t * 6 + p * 9);
+          pctx.strokeStyle = '#ffffff';
+          pctx.beginPath(); pctx.arc(e.x, e.y, 3 + p * 10, 0, TAU); pctx.stroke();
+          pctx.globalAlpha = 0.8;
+          pctx.fillStyle = e.g.hue;
+          pctx.fillRect(e.x - 1, e.y - 1, 2, 2);
+        }
+        for (const s of S.spores) {
+          pctx.globalAlpha = Math.max(0, s.life / 1.6) * 0.7;
+          pctx.fillStyle = '#ffffff';
+          pctx.fillRect(s.x, s.y, 1.5, 1.5);
         }
         pctx.globalAlpha = 1;
-        ctx.drawImage(pc, 0, 0);
+        ctx.drawImage(S.pc, 0, 0);
       },
       stop() {}
     };

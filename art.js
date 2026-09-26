@@ -9,12 +9,12 @@
  * grown from the merge) · CHIMERA (spiral-wave chimera, heterogeneity-induced:
  * an incoherent core churns inside phase-locked spiral arms — the brain that
  * sleeps with half itself).
- * v9: the YURU layer becomes ORGANISMS whose bodies ARE the field's
- * handwriting — each creature is a head integrated (RK2) through the same
- * vector field that draws the base layer; its body is the trail it swam, with
- * a genome-driven wiggle. v8's spring-held parametric bodies read as stickers
- * on top; v9 kills the independent path. Creatures feed near the poles, lay
- * mutated eggs, fade when starved: generations, not loops.
+ * v10: STIGMERGY + LINEAGE. Creatures deposit pheromone into a low-res grid
+ * (diffuse + decay, after Jeff Jones' Physarum agents) that renders as a warm
+ * memory-glow — the back visibly remembers where life has been, and sated
+ * creatures follow the scent, so the coupling runs both ways. Trail-crossing
+ * mates splice genomes (crossover + mutation, after Sims/Draves/Tierra).
+ * P.startGen replays a stored lineage: a knot revisited keeps evolving.
  * (v7: living-layer trail fade fixed to destination-in — the old source-over
  * black fill accumulated to opaque and would bury the baked base.)
  * Math symbology only (∫∑φπ∞√∂); the source-DNA ring is code texture, kept honest.
@@ -598,24 +598,22 @@
   // generations, not loops — always unique, always building. One shared
   // heartbeat keeps the layer in rhythm with the back; trails etch the
   // streamlines they swam. After @yuruyurau's one-liner organisms.
-  // yuru v9: the body IS the field's handwriting. Each creature is a head that
-  // swims the core's vector field (RK2 midpoint integration through the SAME
-  // field function that draws the base layer); its body is the trail of where
-  // the head has been — a streamline with a genome. No independent parametric
-  // path anymore: the v8 spring held bodies rigid and they read as stickers.
-  // The genome now sets trail length, swim speed, wiggle amplitude/frequency —
-  // the yuruyurau hairline character survives as a swimming wiggle that grows
-  // toward the tail, pulsing with the shared heartbeat. Creatures feed where
-  // the field runs strong, lay mutated eggs when fed, fade when starved:
-  // generations, not loops. After @yuruyurau's one-liner organisms.
+  // yuru v10: bodies ARE the field's handwriting (v9: head RK2-integrated
+  // through the core's own vector field, body = the trail it swam) PLUS
+  // stigmergy: heads deposit pheromone into a 72x72 grid (diffuse + decay);
+  // the grid renders as a warm memory-glow and sated creatures steer by scent.
+  // Trail-crossing mates splice genomes. P.startGen replays a stored lineage.
+  // After @yuruyurau's one-liner organisms, Jeff Jones' Physarum agents,
+  // Karl Sims' evolved creatures.
   function yuruLiveLayer(ctx, W, H, P) {
     const cvs = ctx.canvas;
     const rand = P.rand, inks = P.pal.inks;
     const magF = P.magField || null, flowF = P.flowField || null;
     const asp = P.magAsp || W / H;
     const KIND = magF ? 'mag' : (flowF ? 'flow' : 'drift');
-    let S = cvs._yuru9;
-    if (!S || S.P !== P) S = cvs._yuru9 = initOrganisms();
+    const GW = 72, GH = 72; // pheromone grid (stigmergy)
+    let S = cvs._yuru10;
+    if (!S || S.P !== P) S = cvs._yuru10 = initOrganisms();
 
     const toNx = (x, y) => [(x / W - 0.5) * 2 * asp, (y / H - 0.5) * 2];
     // unit direction + normalized strength of the core's vector field at (x,y)
@@ -660,19 +658,38 @@
         headR: Math.max(1, Math.min(4, g.headR + j(0.6))),
       };
     }
+    // crossover: each trait picked from either parent, then mutated
+    function spliceGenome(a, b) {
+      const pick = (k) => (rand() < 0.5 ? a[k] : b[k]);
+      return mutate({
+        trail: pick('trail'), speed: pick('speed'), wigAmp: pick('wigAmp'),
+        wigFreq: pick('wigFreq'), ph: rand() * TAU,
+        hue: rand() < 0.5 ? a.hue : b.hue, headR: pick('headR'),
+      });
+    }
     function spawn(g, x, y, gen) {
       const trail = [];
       for (let i = 0; i < g.trail; i++) trail.push({ x, y });
       return { g, trail, x, y, heading: rand() * TAU, energy: 0.55 + rand() * 0.3,
                age: 0, gen: gen || 0, alpha: 0, deadBurst: false };
     }
+    function depAt(gx, gy) {
+      gx = Math.max(0, Math.min(GW - 1, gx | 0)); gy = Math.max(0, Math.min(GH - 1, gy | 0));
+      return S.dep[gy * GW + gx];
+    }
     function initOrganisms() {
       const pc = document.createElement('canvas'); pc.width = W; pc.height = H;
-      const st = { P, pc, pctx: pc.getContext('2d'), creatures: [], eggs: [], spores: [], last: 0 };
+      const depC = document.createElement('canvas'); depC.width = GW; depC.height = GH;
+      const sg = Math.min(24, (P.startGen | 0) || 0); // replayed lineage
+      const st = { P, pc, pctx: pc.getContext('2d'), creatures: [], eggs: [], spores: [], last: 0,
+                   dep: new Float32Array(GW * GH), dep2: new Float32Array(GW * GH),
+                   depC, depX: depC.getContext('2d'),
+                   depImg: null, maxGen: sg, frame: 0 };
       for (let i = 0; i < 3; i++) {
-        const g = newGenome();
-        if (i === 0) g.hue = '#ffffff'; // one ghost-leader
-        st.creatures.push(spawn(g, W * (0.25 + rand() * 0.5), H * (0.25 + rand() * 0.5), 0));
+        let g = newGenome();
+        for (let k = 0; k < Math.min(sg, 10); k++) g = mutate(g); // pre-evolved
+        if (i === 0 && sg === 0) g.hue = '#ffffff'; // one ghost-leader
+        st.creatures.push(spawn(g, W * (0.25 + rand() * 0.5), H * (0.25 + rand() * 0.5), sg));
       }
       return st;
     }
@@ -690,7 +707,21 @@
           const q = vecAt(cr.x + Math.cos(a) * 70, cr.y + Math.sin(a) * 70, t);
           if (q.mag > best) { best = q.mag; want = a; }
         }
+      } else if (cr.energy >= 0.35 && cr.age > 4) {
+        // stigmergy: the sated follow the scent others left behind
+        let best = 0.06, bw = want;
+        for (const off of [-0.9, -0.45, 0, 0.45, 0.9]) {
+          const a = cr.heading + off;
+          const v = depAt((cr.x + Math.cos(a) * 90) / W * GW, (cr.y + Math.sin(a) * 90) / H * GH);
+          if (v > best) { best = v; bw = a; }
+        }
+        want = bw;
       }
+      // every head writes into the field it reads
+      S.dep[Math.max(0, Math.min(GH - 1, (cr.y / H * GH) | 0)) * GW +
+            Math.max(0, Math.min(GW - 1, (cr.x / W * GW) | 0))] =
+        Math.min(1.5, S.dep[Math.max(0, Math.min(GH - 1, (cr.y / H * GH) | 0)) * GW +
+            Math.max(0, Math.min(GW - 1, (cr.x / W * GW) | 0))] + dt * 2.5 * cr.alpha);
       let d = want - cr.heading;
       while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
       cr.heading += d * Math.min(1, dt * 3);
@@ -732,9 +763,50 @@
         pctx.globalCompositeOperation = 'lighter';
         pctx.lineWidth = 1;
         for (const cr of S.creatures) stepCreature(cr, dt, t);
+        // crossover: trail-crossing mates splice genomes
+        const cs = S.creatures;
+        for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
+          const a = cs[i], b = cs[j];
+          const dxh = a.x - b.x, dyh = a.y - b.y;
+          if (dxh * dxh + dyh * dyh < 676 && a.age > 8 && b.age > 8 &&
+              a.energy > 0.5 && b.energy > 0.5 && rand() < dt * 0.12 &&
+              S.creatures.length + S.eggs.length < 6) {
+            S.eggs.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2,
+                          g: spliceGenome(a.g, b.g), t: 0, gen: Math.max(a.gen, b.gen) + 1 });
+            a.energy *= 0.7; b.energy *= 0.7;
+          }
+        }
+        // pheromone: decay every frame, diffuse every 2nd, render as memory-glow
+        const decay = 1 - dt * 0.16;
+        for (let i = 0; i < GW * GH; i++) S.dep[i] *= decay;
+        S.frame++;
+        if ((S.frame & 1) === 0) {
+          for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+            let s = 0;
+            for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++)
+              s += S.dep[Math.max(0, Math.min(GH - 1, y + oy)) * GW + Math.max(0, Math.min(GW - 1, x + ox))];
+            S.dep2[y * GW + x] = s / 9;
+          }
+          const tmp = S.dep; S.dep = S.dep2; S.dep2 = tmp;
+        }
+        if (!S.depImg) S.depImg = S.depX.createImageData(GW, GH);
+        const px = S.depImg.data;
+        for (let i = 0; i < GW * GH; i++) {
+          const v = S.dep[i], o = i * 4, a = Math.min(90, v * 90) | 0;
+          px[o] = 255; px[o + 1] = 196; px[o + 2] = 128; px[o + 3] = a;
+        }
+        S.depX.putImageData(S.depImg, 0, 0);
+        pctx.globalCompositeOperation = 'lighter';
+        pctx.globalAlpha = 0.5;
+        pctx.imageSmoothingEnabled = true;
+        pctx.drawImage(S.depC, 0, 0, W, H);
+        pctx.globalAlpha = 1;
         for (const e of S.eggs) {
           e.t += dt;
-          if (e.t > 3.5) { S.creatures.push(spawn(e.g, e.x, e.y, e.gen)); e.hatched = true; }
+          if (e.t > 3.5) {
+            S.creatures.push(spawn(e.g, e.x, e.y, e.gen)); e.hatched = true;
+            if (e.gen > S.maxGen) S.maxGen = e.gen;
+          }
         }
         S.eggs = S.eggs.filter(e => !e.hatched);
         const kept = [];
@@ -807,7 +879,8 @@
         pctx.globalAlpha = 1;
         ctx.drawImage(S.pc, 0, 0);
       },
-      stop() {}
+      stop() {},
+      stats() { return { creatures: S.creatures.length, eggs: S.eggs.length, maxGen: S.maxGen }; }
     };
   }
 
@@ -1371,6 +1444,7 @@
     const H = canvas.height = opts.h || 720;
     const ctx = canvas.getContext('2d');
     const P = buildParams(seed);
+    if (opts.startGen) P.startGen = opts.startGen;
     drawVoid(ctx, W, H, P);
     drawNebula(ctx, W, H, P);
     let coreUsed = P.core;
@@ -1425,9 +1499,10 @@
     else if (coreUsed === 'reaction') live = reactionLiveLayer(ctx, W, H, P);
     else if (coreUsed === 'rendezvous') live = rendezvousLiveLayer(ctx, W, H, P);
     else if (coreUsed === 'chimera') live = chimeraLiveLayer(ctx, W, H, P);
-    let raf = 0; const t0 = performance.now();
+    let raf = 0, running = true; const t0 = performance.now();
     const speed = 0.02 + P.rand() * 0.03, phase = P.p1;
     function frame(now) {
+      if (!running) { raf = requestAnimationFrame(frame); return; }
       const t = (now - t0) / 1000;
       ctx.clearRect(0, 0, W, H);
       ctx.drawImage(base, 0, 0);
@@ -1445,7 +1520,8 @@
       raf = requestAnimationFrame(frame);
     }
     raf = requestAnimationFrame(frame);
-    return { stop() { cancelAnimationFrame(raf); }, palette: P.pal.name, seed: String(seed), core: coreUsed };
+    return { stop() { cancelAnimationFrame(raf); }, pause() { running = false; }, resume() { running = true; },
+             palette: P.pal.name, seed: String(seed), core: coreUsed, live };
   }
 
   global.KnotArt = {

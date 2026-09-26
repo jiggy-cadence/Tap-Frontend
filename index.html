@@ -126,7 +126,7 @@ document.getElementById('tieBtn').onclick = async ()=>{
   st('issuing meeting token…');
   try {
     const r = await api('/api/meeting/create');
-    if (!r.ok) { st('failed: '+(r.reason||'?')); return; }
+    if (!r.ok) { st(r.userMessage || ('failed: '+(r.reason||'?'))); return; }
     const link = `https://t.me/${BOT}/app?startapp=${r.token}`;
     const box = document.getElementById('tokenBox'); box.style.display='block';
     document.getElementById('tokenVal').textContent = r.token;

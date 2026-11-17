@@ -4,6 +4,7 @@
 <title>TAP — ceremony</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="art.js"></script>
+<script src="safe.js"></script>
 <script src="ceremony-dsp.js"></script>
 <style>
 :root{--bg:#050508;--neon:#00f0ff;--pink:#ff00e5;--lime:#a6ff00;--dim:#8a8a9a}
@@ -52,7 +53,7 @@ button:disabled{opacity:.3}
 const tg = window.Telegram && Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const qs = new URLSearchParams(location.search);
-const API = qs.get('api') || '';
+const API = TapSafe.apiBase(location.search);  // same-origin; ?api= is honoured for localhost only (see safe.js)
 const TOKEN = qs.get('token') || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
 const ROLE = qs.get('role') || 'join'; // initiate | join
 const initData = (tg && tg.initData) || '';
@@ -119,8 +120,8 @@ function showKnot(id, knot, sig) {
   $('verdictRow').style.display = 'none'; $('bGo').style.display = 'none'; $('bMic').style.display = 'none';
   const c = $('knotArt'); c.style.display = 'block';
   KnotArt.renderAnimated(c, id, { w: 720, h: 720, code: knot.code });
-  $('knotMeta').textContent = '🪢 KNOT TIED\nid ' + id.slice(0, 16) + '…\ncode ' + knot.code +
-    '\nsig ' + String(sig).slice(0, 32) + '…\n\nThis artwork is yours — seeded by the knot itself.\nNo two knots share the same art.';
+  $('knotMeta').textContent = '🪢 KNOT TIED\nid ' + String(id).slice(0, 16) + '…\ncode ' + knot.code +
+    '\nsig ' + String(sig).slice(0, 32) + '…\n\nThis artwork is yours — seeded by the knot itself.';
   st('◉ THE KNOT IS TIED.');
   $('bBack').classList.remove('hide');
   if (tg) tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');

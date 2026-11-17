@@ -623,9 +623,11 @@
   }
   function rvOrder(d) { return 1 / (1 + Math.exp((d - 0.30) * 14)); } // Kuramoto r(d)
 
-  // the true X-point: Newton-solve B(x,y)=0 from the midpoint. opposed
-  // constellations guarantee a null nearby by continuity; the flash, separatrix,
-  // sync ring and L-system all anchor to THIS point, not to (0,0).
+  // the X-point: Newton-solve B(x,y)=0 starting from the midpoint. the flash,
+  // separatrix, sync ring and L-system anchor to the returned point. if the
+  // solve leaves the central box (|x| or |y| > 0.5) it gives up and returns the
+  // midpoint (0,0), which is then NOT a field null — so this is the true
+  // X-point only when Newton converges.
   function rvNull(P, d) {
     let x = 0, y = 0;
     for (let it = 0; it < 14; it++) {
@@ -932,7 +934,8 @@
       }
       return c;
     }
-    // regional split for the honesty receipt: inside vs outside the core radius
+    // regional split, inside vs outside the core radius. exported for inspection
+    // from the console; nothing in this repo calls it.
     function stats() {
       const c = coherence();
       let ci = 0, ni = 0, co = 0, no = 0;

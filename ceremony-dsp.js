@@ -1,4 +1,5 @@
-/* TAP ceremony DSP — extracted from tap-ceremony.html (proven band 18–19.75 kHz).
+/* TAP ceremony DSP — extracted from tap-ceremony.html. Band 18–19.75 kHz: chosen in
+ * that separate test page, which is not in this repo; nothing here measures it.
  * Exposes window.TapDSP: { runInitiator(onStatus), runJoiner(onStatus), micCheck(onMeter,onStatus) }
  * Each returns { challenge, response, verify } — the 8-hex verify code both phones must match.
  */
@@ -62,8 +63,12 @@ class Cap extends AudioWorkletProcessor{
   constructor(){ super(); this.buf=[]; }
   process(inputs){
     const ch=inputs[0];
+    // one chunk = one 250 ms symbol at whatever rate the device runs
+    // (sampleRate is a global in the worklet scope). The old fixed count was
+    // 250 ms at 48 kHz only.
+    const n=Math.round(sampleRate*${SYM});
     if(ch&&ch[0]){ this.buf.push(...ch[0]);
-      while(this.buf.length>=12000){ this.port.postMessage(this.buf.slice(0,12000)); this.buf=this.buf.slice(12000); } }
+      while(this.buf.length>=n){ this.port.postMessage(this.buf.slice(0,n)); this.buf=this.buf.slice(n); } }
     return true;
   }
 }
@@ -95,39 +100,65 @@ registerProcessor('tap-cap',Cap);`;
     let bi = 0; for (let i = 1; i < 8; i++) if (mags[i] > mags[bi]) bi = i;
     return (mags[bi] > 3 * med && mags[bi] > 1e-6) ? bi : -1;
   }
+  // Decode a frame from the slot history (one slot = 100 ms, one symbol = 2.5 slots).
+  // Tries every preamble match. Returns
+  //   { ok:true, hex }            a frame whose CRC checks
+  //   { ok:false, pending:true }  a preamble whose frame is still arriving
+  //   { ok:false, why }           nothing decodable (why = the last failure, if any)
+  // A bad match no longer ends the search: noise can look like a preamble, and
+  // a real preamble is seen before its data has been heard.
+  const SLOT_MS = 100, SLOTS_PER_SYM = SYM * 1000 / SLOT_MS, DATA_SYMS = 19;
+  function decodeSlots(slots) {
+    const runs = [];
+    for (const s of slots) { const l = runs[runs.length - 1]; if (l && l.v === s) l.n++; else runs.push({ v: s, n: 1 }); }
+    let why = null, pending = false;
+    for (let i = 0; i + 8 <= runs.length; i++) {
+      let ok = true;
+      for (let k = 0; k < 8; k++) { if (runs[i + k].v !== PRE[k] || runs[i + k].n < 1 || runs[i + k].n > 5) { ok = false; break; } }
+      if (!ok) continue;
+      let endSlot = 0; for (let k = 0; k <= i + 7; k++) endSlot += runs[k].n;
+      const startSlot = endSlot;
+      if (Math.round(startSlot + DATA_SYMS * SLOTS_PER_SYM) > slots.length) { pending = true; continue; }
+      let bits = '', bad = -1;
+      for (let d = 0; d < DATA_SYMS; d++) {
+        const w0 = Math.round(startSlot + d * SLOTS_PER_SYM), w1 = Math.round(startSlot + (d + 1) * SLOTS_PER_SYM);
+        const votes = {};
+        for (let s = w0; s < w1 && s < slots.length; s++) { const v = slots[s]; if (v >= 0) votes[v] = (votes[v] || 0) + 1; }
+        let best = -1, bn = 0; for (const k in votes) if (votes[k] > bn) { bn = votes[k]; best = +k; }
+        if (best < 0) { bad = d; break; }
+        bits += best.toString(2).padStart(3, '0');
+      }
+      if (bad >= 0) { why = 'symbol ' + bad + ' unreadable — move phones closer, volume MAX, retry'; continue; }
+      const body = bits.slice(0, 56);
+      const dataHex = bitsToHex(body.slice(0, 48)), crcRx = parseInt(bitsToHex(body.slice(48, 56)), 16);
+      if (crc8(hexToBytes(dataHex)) !== crcRx) { why = 'CRC mismatch — frame garbled in the air. Move phones closer, volume MAX, retry.'; continue; }
+      return { ok: true, hex: dataHex };
+    }
+    return { ok: false, pending, why };
+  }
+  // Tone indices of a frame, one per symbol (what frameTones plays).
+  function frameSymbols(hex12) { return frameTones(hex12).map(f => FREQS.indexOf(f)); }
+
   async function listenForFrame(timeoutMs) {
     const t0 = Date.now();
     const slots = [];
-    let lastSlot = 0;
+    let lastSlot = 0, why = null;
     while (Date.now() - t0 < timeoutMs) {
       const now = Date.now();
-      if (now - lastSlot >= 100) { lastSlot = now; slots.push(slotTone()); if (slots.length > 700) slots.shift(); }
-      const runs = [];
-      for (const s of slots) { const l = runs[runs.length - 1]; if (l && l.v === s) l.n++; else runs.push({ v: s, n: 1 }); }
-      for (let i = 0; i + 8 <= runs.length; i++) {
-        let ok = true;
-        for (let k = 0; k < 8; k++) { if (runs[i + k].v !== PRE[k] || runs[i + k].n < 1 || runs[i + k].n > 5) { ok = false; break; } }
-        if (!ok) continue;
-        let endSlot = 0; for (let k = 0; k <= i + 7; k++) endSlot += runs[k].n;
-        const startSlot = endSlot;
-        let bits = '';
-        for (let d = 0; d < 19; d++) {
-          const w0 = Math.round(startSlot + d * 2.5), w1 = Math.round(startSlot + (d + 1) * 2.5);
-          const votes = {};
-          for (let s = w0; s < w1 && s < slots.length; s++) { const v = slots[s]; if (v >= 0) votes[v] = (votes[v] || 0) + 1; }
-          let best = -1, bn = 0; for (const k in votes) if (votes[k] > bn) { bn = votes[k]; best = +k; }
-          if (best < 0) return { ok: false, why: 'symbol ' + d + ' unreadable — move phones closer, volume MAX, retry' };
-          bits += best.toString(2).padStart(3, '0');
-        }
-        const body = bits.slice(0, 56);
-        const dataHex = bitsToHex(body.slice(0, 48)), crcRx = parseInt(bitsToHex(body.slice(48, 56)), 16);
-        if (crc8(hexToBytes(dataHex)) !== crcRx)
-          return { ok: false, why: 'CRC mismatch — frame garbled in the air. Move phones closer, volume MAX, retry.' };
-        return { ok: true, hex: dataHex };
+      if (!lastSlot) lastSlot = now - SLOT_MS;
+      // Slots sit on a fixed 100 ms grid. If the loop ran late, fill the missed
+      // slots instead of letting every later slot slide: the decoder indexes
+      // symbols by slot number.
+      let added = false;
+      while (now - lastSlot >= SLOT_MS) { lastSlot += SLOT_MS; slots.push(slotTone()); added = true; if (slots.length > 700) slots.shift(); }
+      if (added) {
+        const r = decodeSlots(slots);
+        if (r.ok) return r;
+        if (r.why) why = r.why;
       }
       await sleep(50);
     }
-    return { ok: false, why: 'timeout — no preamble heard' };
+    return { ok: false, why: why ? 'timeout — last attempt: ' + why : 'timeout — no preamble heard' };
   }
 
   async function runInitiator(onStatus) {
@@ -166,5 +197,7 @@ registerProcessor('tap-cap',Cap);`;
     }
   }
 
-  global.TapDSP = { runInitiator, runJoiner, micCheck, FREQS };
-})(window);
+  global.TapDSP = { runInitiator, runJoiner, micCheck, FREQS,
+    // pure helpers, exposed for the tests in test/
+    _decodeSlots: decodeSlots, _frameSymbols: frameSymbols, _workletSource: WORKLET };
+})(typeof window !== 'undefined' ? window : globalThis);

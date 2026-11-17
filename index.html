@@ -4,6 +4,7 @@
 <title>TAP — tie a knot</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="art.js"></script>
+<script src="safe.js"></script>
 <style>
 :root{--bg:#050508;--neon:#00f0ff;--pink:#ff00e5;--lime:#a6ff00;--dim:#8a8a9a}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -57,7 +58,8 @@ button.untie{flex:1;font-family:inherit;font-size:14px;letter-spacing:2px;paddin
 const tg = window.Telegram && Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const qs = new URLSearchParams(location.search);
-const API = qs.get('api') || '';  // same-origin by default; ?api=https://host for dev
+const API = TapSafe.apiBase(location.search);  // same-origin; ?api= is honoured for localhost only (see safe.js)
+const esc = TapSafe.esc;
 const st = m => document.getElementById('status').textContent = m;
 const initData = (tg && tg.initData) || '';
 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
@@ -98,7 +100,7 @@ function render() {
     KnotArt.render(c, k.id, {w:360,h:360,code:k.code});
     d.appendChild(c);
     const m = document.createElement('div'); m.className='meta';
-    m.innerHTML = `<b>${k.revoked?'✕ CUT':'◉ '+k.id.slice(0,8)}</b><br>${(k.timestamp||'').slice(0,10)}`;
+    m.innerHTML = `<b>${k.revoked?'✕ CUT':'◉ '+esc(String(k.id).slice(0,8))}</b><br>${esc(String(k.timestamp||'').slice(0,10))}`;
     d.appendChild(m); d.onclick=()=>detail(k); g.appendChild(d);
   });
 }
@@ -108,7 +110,7 @@ function detail(k){
     <canvas id="dArt" width="720" height="720"></canvas>
     <div class="row"><button class="ghost" onclick="closeDetail()">← BACK</button>
     ${k.revoked?'':(k.demo?'':'<button class="untie" id="bUntie">✕ CUT THE THREAD</button>')}</div>
-    <pre>${JSON.stringify({id:k.id,code:k.code,userA:k.userA,userB:k.userB,timestamp:k.timestamp,band:k.band,signature:(k.signature||'demo').slice(0,48)+'…'},null,1)}</pre>`;
+    <pre>${esc(JSON.stringify({id:k.id,code:k.code,userA:k.userA,userB:k.userB,timestamp:k.timestamp,band:k.band,signature:String(k.signature||'demo').slice(0,48)+'…'},null,1))}</pre>`;
   if(dAnim){ try{dAnim.stop();}catch(e){} dAnim=null; }
   dAnim = KnotArt.renderAnimated(document.getElementById('dArt'), k.id, {w:720,h:720,code:k.code});
   const b = document.getElementById('bUntie');
@@ -117,23 +119,31 @@ function detail(k){
     const r = await api('/api/knots/revoke',{knotId:k.id});
     if(r.ok){ k.revoked=1; render(); detail(k); } else st('revoke failed: '+(r.reason||'?'));
   };
-  if (tg) tg.BackButton.show(), tg.BackButton.onClick(()=>d.classList.remove('show'));
+  if (tg) tg.BackButton.show();
 }
+// registered once: onClick adds a listener each call, so doing it per open stacked them
+if (tg && tg.BackButton) tg.BackButton.onClick(closeDetail);
 
 // ---- tie a knot ----
+const ceremonyUrl = (token, role) => './ceremony.html?token=' + encodeURIComponent(token) + '&role=' + role +
+  (API ? '&api=' + encodeURIComponent(API) : '');
 document.getElementById('tieBtn').onclick = async ()=>{
   if (!initData) { st('demo mode — open inside Telegram to tie real knots'); return; }
   st('issuing meeting token…');
   try {
     const r = await api('/api/meeting/create');
     if (!r.ok) { st('failed: '+(r.reason||'?')); return; }
+    if (!TapSafe.isToken(r.token)) { st('failed: backend returned a malformed token'); return; }
     const link = `https://t.me/${BOT}/app?startapp=${r.token}`;
     const box = document.getElementById('tokenBox'); box.style.display='block';
     document.getElementById('tokenVal').textContent = r.token;
+    // r.token passed isToken above; handlers are attached in code, not built into markup
     document.getElementById('tokenHint').innerHTML =
-      'share this link with the other phone (5 min):<br><b style="color:#fff">'+link+'</b><br><br>' +
-      `<button class="ghost" style="width:100%" onclick="navigator.clipboard.writeText('${link}').then(()=>{})">COPY INVITE LINK</button>` +
-      `<button class="ghost" style="width:100%;border-color:#a6ff00;color:#a6ff00" onclick="location.href='./ceremony.html?token=${r.token}&role=initiate'">▶ OPEN CEREMONY AS INITIATOR</button>`;
+      'share this link with the other phone (5 min):<br><b style="color:#fff">'+esc(link)+'</b><br><br>' +
+      '<button class="ghost" style="width:100%" id="bCopy">COPY INVITE LINK</button>' +
+      '<button class="ghost" style="width:100%;border-color:#a6ff00;color:#a6ff00" id="bInit">▶ OPEN CEREMONY AS INITIATOR</button>';
+    document.getElementById('bCopy').onclick = ()=>navigator.clipboard.writeText(link).then(()=>{});
+    document.getElementById('bInit').onclick = ()=>{ location.href = ceremonyUrl(r.token, 'initiate'); };
     st('token live for 5 min — send the link, then open the ceremony when they join');
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
   } catch(e){ st('backend unreachable'); }
@@ -149,8 +159,9 @@ async function maybeRedeem(){
     const box = document.getElementById('tokenBox'); box.style.display='block';
     document.getElementById('tokenVal').textContent = '◉ PAIRED';
     document.getElementById('tokenHint').innerHTML =
-      `you're paired with user ${r.creator}.<br><br>` +
-      `<button class="ghost" style="width:100%;border-color:#a6ff00;color:#a6ff00" onclick="location.href='./ceremony.html?token=${startParam}&role=join'">▶ OPEN CEREMONY AS JOINER</button>`;
+      `you're paired with user ${esc(r.creator)}.<br><br>` +
+      '<button class="ghost" style="width:100%;border-color:#a6ff00;color:#a6ff00" id="bJoin">▶ OPEN CEREMONY AS JOINER</button>';
+    document.getElementById('bJoin').onclick = ()=>{ location.href = ceremonyUrl(startParam, 'join'); };
     st('paired — open the ceremony and press START');
   } catch(e){ st('backend unreachable'); }
 }

@@ -1,3 +1,5 @@
+> **Moved to https://github.com/jiggy-cadence/tap/tree/main/frontend-experiments**. This repository is archived and read-only.
+
 # Tap-Frontend
 
 The Telegram mini-app frontend for TAP ("proof of meeting"). Static files, no build step.
